@@ -21,6 +21,62 @@
 </header>
 
 <main>
+  <section class="writing-panel" aria-labelledby="writing-title">
+    <div class="writing-heading">
+      <div><p class="section-eyebrow">Local writing assistant</p><h2 id="writing-title">Improve a draft in your own voice</h2></div>
+      <span class="local-badge">Local model</span>
+    </div>
+    <p class="option-help">Grammar and academic writing feedback for general English, IELTS Academic, and PTE Academic. Scanned PDFs are read with local OCR.</p>
+    <label class="file-picker writing-picker">Open a document
+      <input type="file" id="writing-file" accept=".txt,.md,.markdown,.docx,.pdf">
+    </label>
+    <label class="writing-label" for="writing-input">Draft</label>
+    <textarea id="writing-input" class="writing-textarea" rows="9" placeholder="Paste or open a draft..."></textarea>
+    <p id="word-count" class="option-help">0 words</p>
+    <div class="writing-controls">
+      <label>Writing mode
+        <select id="writing-mode">
+          <option value="general">Grammar and clarity</option>
+          <option value="ielts_task1">IELTS Academic · Task 1</option>
+          <option value="ielts_task2">IELTS Academic · Task 2</option>
+          <option value="pte_essay">PTE Academic · Write Essay</option>
+          <option value="pte_swt">PTE Academic · Summarize Written Text</option>
+        </select>
+      </label>
+      <label>English variety
+        <select id="writing-variety">
+          <option value="international">International academic English</option>
+          <option value="uk">British English</option>
+          <option value="us">American English</option>
+          <option value="au">Australian English</option>
+          <option value="ca">Canadian English</option>
+        </select>
+      </label>
+      <label id="target-level-field" hidden><span id="target-level-label">Practice target</span>
+        <select id="target-level"></select>
+      </label>
+      <label>Ollama model
+        <input id="writing-model" type="text" value="qwen3.5:9b" maxlength="100">
+      </label>
+      <button id="grammar-check-btn" class="secondary-btn" type="button">Check grammar locally</button>
+      <button id="rewrite-btn" class="primary-btn" type="button">Revise draft</button>
+    </div>
+    <p id="mode-guidance" class="option-help">Grammar, spelling, punctuation, word choice, and sentence clarity.</p>
+    <p id="exam-disclaimer" class="option-help" hidden>Practice target only. Feedback is not an official or predicted IELTS band or PTE score.</p>
+    <label id="task-prompt-label" class="writing-label" for="task-prompt" hidden>Question or source passage</label>
+    <textarea id="task-prompt" class="writing-textarea" rows="4" hidden placeholder="Paste the task question here. For PTE Summarize Written Text, paste the source passage here."></textarea>
+    <p id="task-prompt-help" class="option-help" hidden>Paste the exact task question. For IELTS Academic Task 1, include the chart or diagram values in text form; the model must not invent data.</p>
+    <details class="voice-details">
+      <summary>Optional: add a writing sample for voice matching</summary>
+      <textarea id="voice-sample" class="writing-textarea" rows="4" maxlength="4000" placeholder="A sample of your own writing. This is sent only to your local Ollama model."></textarea>
+    </details>
+    <p id="writing-status" class="option-help" role="status" aria-live="polite">Grammar checking uses an optional local LanguageTool server on port 8081. Draft revisions use local Ollama. Text stays on this device.</p>
+    <label class="writing-label" for="writing-output">Suggested revision</label>
+    <textarea id="writing-output" class="writing-textarea" rows="9" placeholder="Your suggested revision will appear here." readonly></textarea>
+    <div id="writing-feedback" class="writing-feedback" hidden></div>
+    <div class="writing-actions"><button id="use-revision" class="secondary-btn" type="button" disabled>Use revision as draft</button><button id="download-revision" class="secondary-btn" type="button" disabled>Download revision (.txt)</button><button id="download-draft" class="secondary-btn" type="button" disabled>Download draft (.txt)</button><button id="download-docx" class="secondary-btn" type="button" disabled>Download in original format</button></div>
+  </section>
+
   <section id="drop-zone" class="drop-zone">
     <p><strong>Drop images, text, or office files here</strong> or</p>
     <label class="file-picker">

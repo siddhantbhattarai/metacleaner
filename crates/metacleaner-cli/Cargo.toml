@@ -27,6 +27,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 walkdir = "2"
 clap_complete = "4.6.9"
 clap_mangen = "0.3.3"
+ureq = { version = "3.4", default-features = false }
 
 # `cargo deb -p metacleaner-cli` (run from the workspace root) packages
 # `metaclean` as an apt-installable .deb. The binary is fully
@@ -55,6 +56,7 @@ no upload — everything runs on your machine."""
 section = "utils"
 priority = "optional"
 depends = "$auto"
+recommends = ["tesseract-ocr", "poppler-utils"]
 assets = [
     ["target/release/metaclean", "usr/bin/", "755"],
     ["../../README.md", "usr/share/doc/metacleaner/README.md", "644"],

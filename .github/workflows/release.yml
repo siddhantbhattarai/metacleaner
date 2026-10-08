@@ -1,0 +1,83 @@
+name: Build and release downloads
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test workspace
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+  build-linux:
+    name: Build Debian package
+    # Build on the oldest supported Ubuntu LTS so cargo-deb records
+    # runtime library versions compatible with newer Ubuntu releases.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Debian packaging tools
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev dpkg-dev
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+      - name: Build release binary
+        run: cargo build --release --workspace --locked
+      - name: Package .deb
+        run: cargo deb -p metacleaner-cli --no-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-deb
+          path: target/debian/*.deb
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows executable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release --workspace --locked
+      - name: Stage Windows downloads
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets, windows-bundle | Out-Null
+          Copy-Item target/release/metaclean.exe release-assets/metaclean.exe
+          Copy-Item target/release/metaclean.exe windows-bundle/metaclean.exe
+          Copy-Item README.md windows-bundle/README.md
+          Copy-Item LICENSE windows-bundle/LICENSE
+          Compress-Archive -Path windows-bundle/* -DestinationPath release-assets/metacleaner-windows-x86_64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build-linux, build-windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*

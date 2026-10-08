@@ -102,6 +102,177 @@ pub fn inspect_pdf(input: &[u8], opts: &PdfOptions) -> Result<InspectPdfReport, 
     Ok(InspectPdfReport { findings })
 }
 
+/// Extract page text for the local writing assistant. Scanned/image-only
+/// pages need OCR and return little or no text here.
+pub fn extract_pdf_text(input: &[u8], opts: &PdfOptions) -> Result<String, PdfError> {
+    check_size(input, opts)?;
+    let document = load(input, opts)?;
+    let pages = document.get_pages();
+    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+    Ok(document.extract_text_with_limit(&page_numbers, opts.max_decompressed_stream_bytes)?)
+}
+
+/// Extract page-separated text, including empty entries for image-only pages.
+pub fn extract_pdf_pages_text(input: &[u8], opts: &PdfOptions) -> Result<Vec<String>, PdfError> {
+    check_size(input, opts)?;
+    let document = load(input, opts)?;
+    let pages = document.get_pages();
+    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+    Ok(document
+        .extract_text_chunks_with_limit(&page_numbers, opts.max_decompressed_stream_bytes)
+        .into_iter()
+        .map(|chunk| chunk.unwrap_or_default())
+        .collect())
+}
+
+/// Preserve the uploaded PDF pages and append a clean, editable-text
+/// revision as PDF pages using the original page dimensions and margins.
+pub fn append_revision_pages(
+    input: &[u8],
+    text: &str,
+    opts: &PdfOptions,
+) -> Result<Vec<u8>, PdfError> {
+    check_size(input, opts)?;
+    let mut document = load(input, opts)?;
+    let original_page_count = document.get_pages().len();
+    let root_id = match document.trailer.get(b"Root")? {
+        Object::Reference(id) => *id,
+        _ => return Err(lopdf::Error::ObjectNotFound((0, 0)).into()),
+    };
+    let pages_id = match document.get_object(root_id)?.as_dict()?.get(b"Pages")? {
+        Object::Reference(id) => *id,
+        _ => return Err(lopdf::Error::ObjectNotFound((0, 0)).into()),
+    };
+    let (media_box, resources) = {
+        let pages = document.get_object(pages_id)?.as_dict()?;
+        let media_box = pages
+            .get(b"MediaBox")
+            .cloned()
+            .unwrap_or_else(|_| vec![0.into(), 0.into(), 612.into(), 792.into()].into());
+        (media_box, pages.get(b"Resources").cloned().ok())
+    };
+    let (left, bottom, right, top) = media_box
+        .as_array()
+        .ok()
+        .filter(|values| values.len() >= 4)
+        .map(|values| {
+            let number = |value: &Object| {
+                value
+                    .as_float()
+                    .map(f64::from)
+                    .or_else(|_| value.as_i64().map(|integer| integer as f64))
+                    .unwrap_or(0.0)
+            };
+            (
+                number(&values[0]),
+                number(&values[1]),
+                number(&values[2]),
+                number(&values[3]),
+            )
+        })
+        .unwrap_or((0.0, 0.0, 612.0, 792.0));
+    let width = (right - left).max(200.0);
+    let height = (top - bottom).max(200.0);
+    let wrap_width = ((width - 104.0) / 5.5).floor().max(20.0) as usize;
+    let lines_per_page = ((height - 100.0) / 13.0).floor().max(10.0) as usize;
+    let lines = wrap_revision(text, wrap_width);
+    let page_count = lines.len().div_ceil(lines_per_page);
+    let font_id = document.add_object(Dictionary::from_iter([
+        (b"Type".to_vec(), Object::Name(b"Font".to_vec())),
+        (b"Subtype".to_vec(), Object::Name(b"Type1".to_vec())),
+        (b"BaseFont".to_vec(), Object::Name(b"Helvetica".to_vec())),
+        (
+            b"Encoding".to_vec(),
+            Object::Name(b"WinAnsiEncoding".to_vec()),
+        ),
+    ]));
+    let mut page_ids = Vec::new();
+    for page_lines in lines.chunks(lines_per_page) {
+        let origin_x = left + 52.0;
+        let origin_y = top - 44.0;
+        let mut content =
+            format!("BT /F1 11 Tf {origin_x:.2} {origin_y:.2} Td (Revised copy) Tj 0 -26 Td\n")
+                .into_bytes();
+        for line in page_lines {
+            content.extend_from_slice(b"(");
+            for byte in pdf_text_bytes(line) {
+                if matches!(byte, b'(' | b')' | b'\\') {
+                    content.push(b'\\');
+                }
+                content.push(byte);
+            }
+            content.extend_from_slice(b") Tj 0 -13 Td\n");
+        }
+        content.extend_from_slice(b"ET");
+        let content_id = document.add_object(Stream::new(Dictionary::new(), content));
+        let mut font_map = Dictionary::new();
+        font_map.set("F1", Object::Reference(font_id));
+        let mut resource_dict = match resources.clone() {
+            Some(Object::Dictionary(dict)) => dict,
+            _ => Dictionary::new(),
+        };
+        resource_dict.set("Font", font_map);
+        let resource_id = document.add_object(resource_dict);
+        let page_id = document.add_object(Dictionary::from_iter([
+            (b"Type".to_vec(), Object::Name(b"Page".to_vec())),
+            (b"Parent".to_vec(), Object::Reference(pages_id)),
+            (b"MediaBox".to_vec(), media_box.clone()),
+            (b"Resources".to_vec(), Object::Reference(resource_id)),
+            (b"Contents".to_vec(), Object::Reference(content_id)),
+        ]));
+        page_ids.push(page_id);
+    }
+    {
+        let pages = document.get_object_mut(pages_id)?.as_dict_mut()?;
+        let kids = pages.get_mut(b"Kids")?.as_array_mut()?;
+        kids.extend(page_ids.into_iter().map(Object::Reference));
+        pages.set("Count", (original_page_count + page_count) as u32);
+    }
+    let mut out = Vec::new();
+    document.save_to(&mut out)?;
+    Ok(out)
+}
+
+fn wrap_revision(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.lines() {
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            if !line.is_empty() && line.chars().count() + word.chars().count() + 1 > width {
+                lines.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn pdf_text_bytes(text: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\u{2018}' | '\u{2019}' | '\u{02bc}' => bytes.push(b'\''),
+            '\u{201c}' | '\u{201d}' => bytes.push(b'"'),
+            '\u{2013}' | '\u{2014}' | '\u{2212}' => bytes.push(b'-'),
+            '\u{2026}' => bytes.extend_from_slice(b"..."),
+            '\u{2022}' => bytes.push(b'*'),
+            '\u{00a0}' => bytes.push(b' '),
+            _ => match ch as u32 {
+                0x20..=0x7e | 0xa0..=0xff => bytes.push(ch as u8),
+                _ => bytes.push(b'?'),
+            },
+        }
+    }
+    bytes
+}
+
 /// Strip the `/Info` dictionary and all XMP metadata streams from
 /// `input`. Page content, fonts, images, and every other object pass
 /// through untouched (though `lopdf` re-serializes the object/xref
@@ -322,7 +493,10 @@ mod tests {
             .findings
             .iter()
             .any(|f| f.location == "/Info" && f.field == "Producer" && f.value == "ChatGPT"));
-        assert!(report.findings.iter().any(|f| f.location.starts_with("XMP")));
+        assert!(report
+            .findings
+            .iter()
+            .any(|f| f.location.starts_with("XMP")));
     }
 
     #[test]
@@ -338,6 +512,22 @@ mod tests {
 
         let document = Document::load_mem(&cleaned).expect("reload cleaned pdf");
         assert!(document.trailer.get(b"Info").is_err());
+    }
+
+    #[test]
+    fn appended_revision_keeps_original_pdf_pages_and_adds_searchable_revision() {
+        let input = build_test_pdf();
+        let original_pages = Document::load_mem(&input).unwrap().get_pages().len();
+        let output = append_revision_pages(
+            &input,
+            "A revised academic sentence.",
+            &PdfOptions::default(),
+        )
+        .unwrap();
+        let output_doc = Document::load_mem(&output).unwrap();
+        assert_eq!(output_doc.get_pages().len(), original_pages + 1);
+        let extracted = extract_pdf_text(&output, &PdfOptions::default()).unwrap();
+        assert!(extracted.contains("A revised academic sentence."));
     }
 
     #[test]

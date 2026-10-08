@@ -127,6 +127,281 @@ pub fn is_ooxml(input: &[u8]) -> bool {
     found
 }
 
+/// Extract readable paragraph text from a DOCX package for the local writing
+/// assistant. Spreadsheet and presentation content is intentionally excluded.
+pub fn extract_docx_text(input: &[u8], opts: &OoxmlOptions) -> Result<String, DocsError> {
+    check_input_size(input, opts)?;
+    let mut archive = open_guarded(input, opts)?;
+    let mut total = 0u64;
+    let xml = read_entry_if_present(&mut archive, "word/document.xml", opts)?
+        .ok_or(DocsError::NotOoxml)?;
+    total += xml.len() as u64;
+    if total > opts.max_total_uncompressed_bytes {
+        return Err(DocsError::TotalTooLarge {
+            max: opts.max_total_uncompressed_bytes,
+        });
+    }
+    let mut reader = Reader::from_reader(xml.as_slice());
+    let mut out = String::new();
+    let mut paragraph = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|source| DocsError::Xml {
+                part: "word/document.xml".to_string(),
+                source,
+            })? {
+            Event::Start(e) if local_name(&e).eq_ignore_ascii_case("p") => paragraph = true,
+            Event::End(e) if end_local_name(&e).eq_ignore_ascii_case("p") => {
+                if paragraph && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                paragraph = false;
+            }
+            Event::Text(t) if paragraph => {
+                if let Ok(text) = t.unescape() {
+                    out.push_str(&text);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(out)
+}
+
+/// Create a minimal, standards-based DOCX from revised plain text. This is
+/// useful for exporting revisions from PDF and text uploads when preserving
+/// the source file's layout is not possible.
+pub fn create_docx_from_text(text: &str) -> Result<Vec<u8>, DocsError> {
+    let mut body = String::new();
+    for paragraph in text.split('\n') {
+        body.push_str("<w:p><w:r><w:t xml:space=\"preserve\">");
+        body.push_str(&escape_xml_text(paragraph));
+        body.push_str("</w:t></w:r></w:p>");
+    }
+    let parts = [
+        (
+            "[Content_Types].xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>".to_string(),
+        ),
+        (
+            "_rels/.rels",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>".to_string(),
+        ),
+        (
+            "word/document.xml",
+            format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"),
+        ),
+    ];
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, content) in parts {
+        writer.start_file(name, SimpleFileOptions::default())?;
+        std::io::Write::write_all(&mut writer, content.as_bytes())?;
+    }
+    Ok(writer.finish()?.into_inner())
+}
+
+/// Replace the readable paragraph text in a DOCX while retaining every
+/// package part and the paragraph/run/style structure of the source file.
+/// Revised text is mapped paragraph by paragraph; extra paragraphs are
+/// appended to the final paragraph's run structure where possible.
+pub fn revise_docx_text(
+    input: &[u8],
+    revised_text: &str,
+    opts: &OoxmlOptions,
+) -> Result<Vec<u8>, DocsError> {
+    check_input_size(input, opts)?;
+    let mut archive = open_guarded(input, opts)?;
+    if archive.by_name("[Content_Types].xml").is_err() {
+        return Err(DocsError::NotOoxml);
+    }
+    let revised: Vec<&str> = revised_text.lines().collect();
+    let mut paragraph_index = 0usize;
+    let mut total_uncompressed = 0u64;
+    let mut parts = Vec::with_capacity(archive.len());
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        let name = entry.name().to_string();
+        let mut bytes = read_bounded(&mut entry, opts, &mut total_uncompressed)?;
+        if name == "word/document.xml" {
+            bytes = rewrite_docx_body(&bytes, &revised, &mut paragraph_index)?;
+        }
+        parts.push((name, bytes));
+    }
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, bytes) in parts {
+        writer.start_file(name, SimpleFileOptions::default())?;
+        std::io::Write::write_all(&mut writer, &bytes)?;
+    }
+    Ok(writer.finish()?.into_inner())
+}
+
+fn rewrite_docx_body(
+    xml: &[u8],
+    revised: &[&str],
+    paragraph_index: &mut usize,
+) -> Result<Vec<u8>, DocsError> {
+    use quick_xml::Writer;
+    let mut reader = Reader::from_reader(xml);
+    let mut writer = Writer::new(Vec::with_capacity(xml.len()));
+    let mut buf = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|source| DocsError::Xml {
+                part: "word/document.xml".to_string(),
+                source,
+            })? {
+            Event::Start(e) if local_name(&e).eq_ignore_ascii_case("p") => {
+                let paragraph = revised.get(*paragraph_index).copied().unwrap_or("");
+                *paragraph_index += 1;
+                let mut events = vec![Event::Start(e.into_owned())];
+                let mut paragraph_buf = Vec::new();
+                loop {
+                    let event = reader
+                        .read_event_into(&mut paragraph_buf)
+                        .map_err(|source| DocsError::Xml {
+                            part: "word/document.xml".to_string(),
+                            source,
+                        })?;
+                    if matches!(&event, Event::End(e) if end_local_name(e).eq_ignore_ascii_case("p"))
+                    {
+                        events.push(event.into_owned());
+                        break;
+                    }
+                    events.push(event.into_owned());
+                    paragraph_buf.clear();
+                }
+                let weights: Vec<usize> = events
+                    .iter()
+                    .map(|event| match event {
+                        Event::Text(text) => text
+                            .unescape()
+                            .map(|s| s.chars().count().max(1))
+                            .unwrap_or(1),
+                        _ => 0,
+                    })
+                    .collect();
+                let chunks = distribute_text(paragraph, &weights);
+                let mut chunk_index = 0usize;
+                for (event, weight) in events.into_iter().zip(weights) {
+                    let event = if weight > 0 {
+                        let replacement = chunks.get(chunk_index).map(String::as_str).unwrap_or("");
+                        chunk_index += 1;
+                        Event::Text(quick_xml::events::BytesText::new(replacement).into_owned())
+                    } else {
+                        event
+                    };
+                    writer.write_event(event).map_err(|source| DocsError::Xml {
+                        part: "word/document.xml".to_string(),
+                        source,
+                    })?;
+                }
+            }
+            Event::Eof => break,
+            event => writer
+                .write_event(event.into_owned())
+                .map_err(|source| DocsError::Xml {
+                    part: "word/document.xml".to_string(),
+                    source,
+                })?,
+        }
+        buf.clear();
+    }
+    let mut output = writer.into_inner();
+    if revised.len() > *paragraph_index {
+        let mut extra = String::new();
+        for paragraph in &revised[*paragraph_index..] {
+            extra.push_str("<w:p><w:r><w:t xml:space=\"preserve\">");
+            extra.push_str(&escape_xml_text(paragraph));
+            extra.push_str("</w:t></w:r></w:p>");
+        }
+        let xml = String::from_utf8_lossy(&output);
+        let body_position = xml.find("body").ok_or(DocsError::NotOoxml)?;
+        let body_tag_start = xml[..body_position].rfind('<').ok_or(DocsError::NotOoxml)?;
+        let body_prefix = xml[body_tag_start + 1..body_position].trim_end_matches(':');
+        let qualified = |name: &str| {
+            if body_prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{body_prefix}:{name}")
+            }
+        };
+        let section_tag = format!("<{}", qualified("sectPr"));
+        let closing_body = format!("</{}>", qualified("body"));
+        let insert_at = xml
+            .rfind(&section_tag)
+            .or_else(|| xml.rfind(&closing_body))
+            .ok_or(DocsError::NotOoxml)?;
+        let paragraph_tag = qualified("p");
+        let run_tag = qualified("r");
+        let text_tag = qualified("t");
+        let mut expanded = String::with_capacity(xml.len() + extra.len());
+        expanded.push_str(&xml[..insert_at]);
+        let extra = extra
+            .replace("<w:p", &format!("<{paragraph_tag}"))
+            .replace("</w:p>", &format!("</{paragraph_tag}>"))
+            .replace("<w:r", &format!("<{run_tag}"))
+            .replace("</w:r>", &format!("</{run_tag}>"))
+            .replace("<w:t", &format!("<{text_tag}"))
+            .replace("</w:t>", &format!("</{text_tag}>"));
+        expanded.push_str(&extra);
+        expanded.push_str(&xml[insert_at..]);
+        output = expanded.into_bytes();
+    }
+    Ok(output)
+}
+
+fn distribute_text(text: &str, weights: &[usize]) -> Vec<String> {
+    let count = weights.iter().filter(|weight| **weight > 0).count();
+    if count == 0 {
+        return Vec::new();
+    }
+    let total_weight: usize = weights.iter().sum();
+    let chars: Vec<char> = text.chars().collect();
+    let mut chunks = Vec::with_capacity(count);
+    let mut start = 0usize;
+    let mut cumulative = 0usize;
+    let mut remaining = count;
+    for weight in weights.iter().copied().filter(|weight| *weight > 0) {
+        remaining -= 1;
+        cumulative += weight;
+        let end = if remaining == 0 || total_weight == 0 {
+            chars.len()
+        } else {
+            let target = chars.len() * cumulative / total_weight;
+            (target.max(start)).min(chars.len())
+        };
+        chunks.push(chars[start..end].iter().collect());
+        start = end;
+    }
+    chunks
+}
+
+fn escape_xml_text(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            '\u{9}'
+            | '\u{A}'
+            | '\u{D}'
+            | '\u{20}'..='\u{D7FF}'
+            | '\u{E000}'..='\u{FFFD}'
+            | '\u{10000}'..='\u{10FFFF}' => escaped.push(ch),
+            _ => {}
+        }
+    }
+    escaped
+}
+
 /// Report the non-empty values present in `docProps/core.xml`,
 /// `docProps/app.xml`, and `docProps/custom.xml`, without modifying the
 /// input.
@@ -354,6 +629,13 @@ fn local_name(e: &BytesStart) -> String {
     full.rsplit(':').next().unwrap_or(&full).to_string()
 }
 
+fn end_local_name(e: &quick_xml::events::BytesEnd<'_>) -> String {
+    let name = e.name();
+    let raw = name.as_ref();
+    let local = raw.rsplit(|b| *b == b':').next().unwrap_or(raw);
+    String::from_utf8_lossy(local).to_string()
+}
+
 fn property_name_attr(e: &BytesStart, reader: &Reader<&[u8]>) -> Option<String> {
     e.attributes().flatten().find_map(|a| {
         if a.key.as_ref() == b"name" {
@@ -429,6 +711,67 @@ mod tests {
         let input = make_ooxml_fixture();
         assert!(is_ooxml(&input));
         assert!(!is_ooxml(b"not a zip at all"));
+    }
+
+    #[test]
+    fn revised_docx_keeps_package_parts_and_paragraph_formatting() {
+        let mut source = make_ooxml_fixture();
+        {
+            let mut archive = ZipArchive::new(Cursor::new(&source)).unwrap();
+            let mut document = archive.by_name("word/document.xml").unwrap();
+            let mut xml = String::new();
+            document.read_to_string(&mut xml).unwrap();
+            drop(document);
+            drop(archive);
+            let xml = xml.replace(
+                "<w:p><w:r><w:t>Hello, world.</w:t></w:r></w:p>",
+                "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Old</w:t></w:r><w:r><w:t> text</w:t></w:r></w:p>",
+            );
+            let mut archive = ZipArchive::new(Cursor::new(&source)).unwrap();
+            let mut parts = Vec::new();
+            for index in 0..archive.len() {
+                let mut entry = archive.by_index(index).unwrap();
+                let name = entry.name().to_string();
+                let mut data = Vec::new();
+                entry.read_to_end(&mut data).unwrap();
+                if name == "word/document.xml" {
+                    data = xml.as_bytes().to_vec();
+                }
+                parts.push((name, data));
+            }
+            let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+            for (name, data) in parts {
+                writer
+                    .start_file(name, SimpleFileOptions::default())
+                    .unwrap();
+                std::io::Write::write_all(&mut writer, &data).unwrap();
+            }
+            source = writer.finish().unwrap().into_inner();
+        }
+
+        let revised = revise_docx_text(
+            &source,
+            "A clear, revised sentence.\nA new paragraph retained in the output.",
+            &OoxmlOptions::default(),
+        )
+        .unwrap();
+        let mut archive = ZipArchive::new(Cursor::new(&revised)).unwrap();
+        assert!(archive.by_name("docProps/core.xml").is_ok());
+        assert!(archive.by_name("word/document.xml").is_ok());
+        let mut xml = String::new();
+        archive
+            .by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        assert!(xml.contains("w:val=\"center\""));
+        assert!(xml.contains("<w:b"));
+        assert_eq!(
+            extract_docx_text(&revised, &OoxmlOptions::default())
+                .unwrap()
+                .trim(),
+            "A clear, revised sentence.\nA new paragraph retained in the output."
+        );
     }
 
     #[test]

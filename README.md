@@ -5,7 +5,9 @@ text/Markdown, HTML, SVG, PDF, Office documents, and MP3/MP4/M4A/MOV
 audio-video, written in Rust. Strips EXIF, GPS, XMP, IPTC, C2PA, and
 AI-generator signatures (Stable Diffusion, DALL-E, Midjourney, Firefly);
 invisible-Unicode steganography; PDF/XMP metadata; ID3/iTunes tags; and
-document metadata. No network calls, no upload. Install via apt.
+document metadata. Includes an optional local-model writing assistant for
+general English and IELTS/PTE Academic practice. No external upload. Install
+via apt.
 
 - **Images** (JPEG, PNG, WebP, BMP, GIF, TIFF): strips EXIF, GPS, XMP, IPTC,
   C2PA content credentials, and AI-generator signatures (Stable Diffusion
@@ -49,11 +51,63 @@ without modifying it. Every `clean`/`inspect` command also accepts
 directories via `--recursive`/`-r`, auto-detecting each file's type by
 extension. A `serve` subcommand runs a local web UI (drag-and-drop, batch,
 download) at `http://127.0.0.1`, bound to loopback only, with options that
-adapt to whatever file type you drop.
+adapt to whatever file type you drop. It also includes an optional writing
+assistant that extracts text from TXT, Markdown, DOCX, and PDF files and
+requests revisions from an Ollama service running locally. Searchable PDFs
+use embedded text; scanned PDFs use local Poppler rendering and Tesseract
+OCR. Modes
+cover general grammar and clarity, IELTS Academic Task 1 and Task 2, PTE
+Academic Write Essay, and PTE Academic Summarize Written Text. Users can set
+an IELTS band/PTE score practice target and select an English variety. The
+assistant returns a revised draft, individual grammar suggestions that can
+be applied or dismissed, and exam feedback against published criteria. It
+does not predict official exam scores. DOCX export retains the package,
+page setup, tables, and paragraph/run formatting while revising body text.
+PDF export retains the source pages and appends the revised text in PDF
+pages sized to the source document.
 
-No network calls, no server upload — everything runs on your machine.
+The cleaner makes no external network calls and never uploads files. The
+optional writing assistant connects to Ollama on this machine by default
+(`127.0.0.1:11434`). Install Ollama separately, start it, and pull a
+model (for example, `ollama pull qwen3.5:9b`; smaller models are available
+for computers with less memory). Enter that model name in the
+writing panel. Ollama and its model weights are not bundled into the apt
+package, so the cleaner remains usable without a model.
+
+For rule-based English grammar and spelling checks, the writing panel can
+also connect to a [local LanguageTool server](https://github.com/languagetool-org/languagetool)
+on `127.0.0.1:8081`. Install Java, download and unpack the
+[LanguageTool standalone package](https://languagetool.org/download/), then
+start its HTTP server from that directory:
+
+```sh
+touch server.properties
+java -cp languagetool-server.jar org.languagetool.server.HTTPServer \
+  --config server.properties --port 8081
+```
+
+Choose **Check grammar locally** in the writing panel. The app sends the
+draft only to this local server. LanguageTool's public free endpoint is not
+used: its published rules prohibit automated requests. [ZeroGPT's API](https://www.zerogpt.com/pricing)
+requires an account and usage credits, so it is not an open-source free API.
+
+For scanned PDF OCR on Debian/Ubuntu, install `tesseract-ocr` with English
+language data and `poppler-utils` (`pdftoppm`). OCR runs locally.
+
+The exam feedback follows the public [IELTS Writing criteria](https://ielts.org/take-a-test/preparation-resources/writing-test-resources)
+and [Pearson PTE Academic task guidance](https://www.pearsonpte.com/pte-academic/test-format/speaking-writing/).
+These modes are study aids, not official IELTS or PTE scoring services.
 
 ## Install
+
+### Download the latest release
+
+Release builds publish a Debian package and a Windows bundle on the
+[GitHub Releases page](https://github.com/siddhantbhattarai/metacleaner/releases/latest).
+Download `metacleaner_<version>-1_amd64.deb` and install it with
+`sudo apt install ./metacleaner_<version>-1_amd64.deb`. On Windows, download
+`metacleaner-windows-x86_64.zip` and run `metaclean.exe` from the extracted
+folder. The release also includes the standalone `metaclean.exe`.
 
 ### Debian / Ubuntu (apt)
 
@@ -80,6 +134,20 @@ GitHub Pages, built from the `.deb` this project's `cargo deb` produces (see
 
 See [Build](#build) below — `cargo build --release --workspace` or
 `cargo deb -p metacleaner-cli` if you'd rather build the `.deb` yourself.
+
+### Windows
+
+With the Rust stable toolchain installed, build the standalone executable in
+PowerShell:
+
+```powershell
+cargo build --release --workspace
+.\target\release\metaclean.exe serve
+```
+
+The executable includes the web UI and existing image-upscaling model. For
+writing assistance, install Ollama separately and pull a text model as shown
+above; the model weights are not bundled with the `.exe`.
 
 ## Why full decode/re-encode instead of parsing each metadata format?
 
@@ -146,7 +214,8 @@ is statically linked (no `libonnxruntime.so` at runtime) — so the package
 needs no postinst script and depends on nothing beyond `libc6`/`libstdc++6`
 (auto-detected by `dpkg-shlibdeps` via the `depends = "$auto"` setting in
 `crates/metacleaner-cli/Cargo.toml`'s `[package.metadata.deb]`). After
-installing, `metaclean` and `metaclean serve` are on your `PATH`.
+installing, `metaclean` and `metaclean serve` are on your `PATH`. The package
+recommends Tesseract OCR and Poppler utilities for scanned-PDF extraction.
 
 ### Shell completions and man page
 

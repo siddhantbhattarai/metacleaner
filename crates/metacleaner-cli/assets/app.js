@@ -27,6 +27,349 @@ const docOptionsEl = document.getElementById("doc-options");
 const advancedDetailsEl = document.getElementById("advanced-details");
 const noFilesNoteEl = document.getElementById("no-files-note");
 
+const writingFile = document.getElementById("writing-file");
+let writingSourceFile = null;
+const writingInput = document.getElementById("writing-input");
+const writingOutput = document.getElementById("writing-output");
+const writingStatus = document.getElementById("writing-status");
+const rewriteButton = document.getElementById("rewrite-btn");
+const grammarCheckButton = document.getElementById("grammar-check-btn");
+const downloadRevision = document.getElementById("download-revision");
+const useRevision = document.getElementById("use-revision");
+const downloadDocx = document.getElementById("download-docx");
+const downloadDraft = document.getElementById("download-draft");
+const writingMode = document.getElementById("writing-mode");
+const taskPrompt = document.getElementById("task-prompt");
+const taskPromptLabel = document.getElementById("task-prompt-label");
+const taskPromptHelp = document.getElementById("task-prompt-help");
+const writingFeedback = document.getElementById("writing-feedback");
+const wordCount = document.getElementById("word-count");
+const modeGuidance = document.getElementById("mode-guidance");
+const examDisclaimer = document.getElementById("exam-disclaimer");
+const targetLevelField = document.getElementById("target-level-field");
+const targetLevel = document.getElementById("target-level");
+
+function updateTargetLevels() {
+  const mode = writingMode.value;
+  const choices = mode.startsWith("ielts_")
+    ? ["5", "5.5", "6", "6.5", "7", "7.5", "8", "8.5", "9"].map((v) => [`ielts-${v}`, `IELTS Band ${v}`])
+    : mode.startsWith("pte_")
+      ? Array.from({ length: 81 }, (_, i) => String(i + 10)).map((v) => [`pte-${v}`, `PTE ${v}`])
+      : [["accessible", "Accessible English"], ["academic", "General academic English"], ["advanced", "Advanced academic English"]];
+  targetLevel.replaceChildren();
+  choices.forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    targetLevel.appendChild(option);
+  });
+  if (mode.startsWith("ielts_")) targetLevel.value = "ielts-6.5";
+  else if (mode.startsWith("pte_")) targetLevel.value = "pte-65";
+  else targetLevel.value = "academic";
+  document.getElementById("target-level-label").textContent = mode.startsWith("ielts_")
+    ? "Target IELTS band"
+    : mode.startsWith("pte_")
+      ? "Target PTE score (10–90)"
+      : "English level";
+  targetLevelField.hidden = mode === "general";
+}
+
+function updateWritingMode() {
+  const examMode = writingMode.value !== "general";
+  examDisclaimer.hidden = !examMode;
+  taskPrompt.hidden = !examMode;
+  taskPromptLabel.hidden = !examMode;
+  taskPromptHelp.hidden = !examMode;
+  const guidance = {
+    general: "Grammar, spelling, punctuation, word choice, and sentence clarity.",
+    ielts_task1: "IELTS Academic Task 1: at least 150 words. Feedback uses Task Achievement, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy.",
+    ielts_task2: "IELTS Academic Task 2: at least 250 words. Feedback uses Task Response, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy.",
+    pte_essay: "PTE Academic Write Essay: 200–300 words. Feedback checks content, organization, form, language range, grammar, spelling, and vocabulary.",
+    pte_swt: "PTE Academic Summarize Written Text: one sentence, 5–75 words. Feedback checks source accuracy, form, grammar, and vocabulary.",
+  };
+  modeGuidance.textContent = guidance[writingMode.value];
+  if (examMode) {
+    taskPromptLabel.textContent = writingMode.value === "pte_swt" ? "Source passage" : "Task question / prompt";
+    taskPromptHelp.textContent = writingMode.value === "ielts_task1"
+      ? "Include the chart or diagram values in text form. Feedback checks overview, key features, comparisons, and accuracy; it cannot read chart images."
+      : writingMode.value === "pte_swt"
+        ? "Paste the passage the response summarizes. The practice check looks for one sentence and the current 5–75 word limit."
+        : "Paste the exact task. Feedback checks relevance to the prompt, development, organization, vocabulary, grammar, and the task word range where applicable.";
+  }
+}
+
+function updateWordCount() {
+  const count = writingInput.value.trim() ? writingInput.value.trim().split(/\s+/u).length : 0;
+  const ranges = { ielts_task1: " · minimum 150", ielts_task2: " · minimum 250", pte_essay: " · target 200–300", pte_swt: " · target 5–75, one sentence" };
+  wordCount.textContent = `Approx. ${count} ${count === 1 ? "word" : "words"}${ranges[writingMode.value] || ""}`;
+  downloadDraft.disabled = !writingInput.value.trim();
+  downloadDocx.disabled = !writingInput.value.trim();
+}
+
+function addFeedbackText(parent, tag, text, className) {
+  if (!text) return;
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text;
+  parent.appendChild(node);
+}
+
+function renderWritingFeedback(data) {
+  writingFeedback.replaceChildren();
+  if (data.summary) addFeedbackText(writingFeedback, "p", data.summary);
+  if (Array.isArray(data.strengths) && data.strengths.length) {
+    addFeedbackText(writingFeedback, "h3", "What is working");
+    const list = document.createElement("ul");
+    data.strengths.forEach((item) => addFeedbackText(list, "li", item));
+    writingFeedback.appendChild(list);
+  }
+  if (Array.isArray(data.improvements) && data.improvements.length) {
+    addFeedbackText(writingFeedback, "h3", "Grammar and writing suggestions");
+    data.improvements.forEach((item) => {
+      const card = document.createElement("article");
+      card.className = "feedback-item";
+      addFeedbackText(card, "strong", item.category || "Suggestion");
+      if (item.original) addFeedbackText(card, "p", `Your text: ${item.original}`);
+      if (item.suggestion) addFeedbackText(card, "p", `Suggested: ${item.suggestion}`);
+      if (item.reason) addFeedbackText(card, "p", item.reason);
+      const actions = document.createElement("div");
+      actions.className = "feedback-actions";
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "secondary-btn";
+      apply.textContent = "Apply to draft";
+      apply.disabled = !item.original || !item.suggestion;
+      apply.addEventListener("click", () => {
+        const start = writingInput.value.indexOf(item.original);
+        if (start < 0) {
+          writingStatus.textContent = "That exact wording is no longer in the draft; review the suggestion and edit it manually.";
+          return;
+        }
+        writingInput.value = writingInput.value.slice(0, start) + item.suggestion + writingInput.value.slice(start + item.original.length);
+        updateWordCount();
+        apply.disabled = true;
+        apply.textContent = "Applied";
+        writingStatus.textContent = "Suggestion applied to the draft. Review the change before downloading.";
+      });
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "secondary-btn";
+      dismiss.textContent = "Dismiss";
+      dismiss.addEventListener("click", () => {
+        card.remove();
+        writingFeedback.hidden = !writingFeedback.childElementCount;
+      });
+      actions.append(apply, dismiss);
+      card.appendChild(actions);
+      writingFeedback.appendChild(card);
+    });
+  }
+  if (Array.isArray(data.exam_feedback) && data.exam_feedback.length) {
+    addFeedbackText(writingFeedback, "h3", "Exam practice feedback");
+    data.exam_feedback.forEach((item) => {
+      const card = document.createElement("article");
+      card.className = "feedback-item";
+      addFeedbackText(card, "strong", item.criterion || "Criterion");
+      addFeedbackText(card, "p", item.feedback || "");
+      writingFeedback.appendChild(card);
+    });
+  }
+  writingFeedback.hidden = !writingFeedback.childElementCount;
+}
+
+writingMode.addEventListener("change", () => { updateWritingMode(); updateWordCount(); });
+writingMode.addEventListener("change", updateTargetLevels);
+writingInput.addEventListener("input", updateWordCount);
+updateWritingMode();
+updateTargetLevels();
+
+grammarCheckButton.addEventListener("click", async () => {
+  if (!writingInput.value.trim()) {
+    writingStatus.textContent = "Add or open a draft first.";
+    return;
+  }
+  grammarCheckButton.disabled = true;
+  writingStatus.textContent = "Checking English grammar with local LanguageTool…";
+  try {
+    const response = await fetch("/api/grammar-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: writingInput.value,
+        english_variety: document.getElementById("writing-variety").value,
+      }),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "Grammar check failed");
+    writingFeedback.replaceChildren();
+    addFeedbackText(writingFeedback, "h3", "LanguageTool grammar suggestions");
+    if (!data.matches.length) {
+      addFeedbackText(writingFeedback, "p", "No issues found by LanguageTool.");
+    }
+    data.matches.forEach((match) => {
+      const card = document.createElement("article");
+      card.className = "feedback-item";
+      addFeedbackText(card, "strong", match.category || "Grammar");
+      addFeedbackText(card, "p", match.message || "Review this phrase.");
+      const original = writingInput.value.slice(match.offset, match.offset + match.length);
+      if (original) addFeedbackText(card, "p", `Your text: ${original}`);
+      const replacement = Array.isArray(match.replacements) ? match.replacements[0] : "";
+      if (replacement) addFeedbackText(card, "p", `Suggested: ${replacement}`);
+      const actions = document.createElement("div");
+      actions.className = "feedback-actions";
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "secondary-btn";
+      apply.textContent = "Apply suggestion";
+      apply.disabled = !replacement || !original;
+      apply.addEventListener("click", () => {
+        const current = writingInput.value.slice(match.offset, match.offset + match.length);
+        if (current !== original) {
+          writingStatus.textContent = "The draft changed since this check. Run the grammar check again before applying this suggestion.";
+          return;
+        }
+        writingInput.value = writingInput.value.slice(0, match.offset) + replacement + writingInput.value.slice(match.offset + match.length);
+        updateWordCount();
+        apply.disabled = true;
+        apply.textContent = "Applied";
+        writingStatus.textContent = "Grammar suggestion applied. Review the result in context.";
+      });
+      actions.appendChild(apply);
+      card.appendChild(actions);
+      writingFeedback.appendChild(card);
+    });
+    writingFeedback.hidden = false;
+    writingStatus.textContent = "Local LanguageTool check complete. Review each suggestion before applying it.";
+  } catch (error) {
+    writingStatus.textContent = String(error).includes("could not reach local LanguageTool")
+      ? `${String(error)} Install and start the LanguageTool local HTTP server.`
+      : String(error);
+  } finally {
+    grammarCheckButton.disabled = false;
+  }
+});
+
+writingFile.addEventListener("change", async () => {
+  const file = writingFile.files && writingFile.files[0];
+  if (!file) return;
+  writingStatus.textContent = `Extracting text from ${file.name}…`;
+  const form = new FormData();
+  form.append("file", file, file.name);
+  try {
+    const response = await fetch("/api/extract-text", { method: "POST", body: form });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "Could not extract text");
+    writingSourceFile = file;
+    writingInput.value = data.text;
+    updateWordCount();
+    writingOutput.value = "";
+    writingFeedback.hidden = true;
+    downloadRevision.disabled = true;
+    useRevision.disabled = true;
+    writingStatus.textContent = `Loaded ${file.name}. Check the extracted text before revising.`;
+  } catch (error) {
+    writingStatus.textContent = String(error);
+  }
+});
+
+rewriteButton.addEventListener("click", async () => {
+  if (!writingInput.value.trim()) {
+    writingStatus.textContent = "Add or open a draft first.";
+    return;
+  }
+  rewriteButton.disabled = true;
+  writingOutput.value = "";
+  writingFeedback.hidden = true;
+  downloadRevision.disabled = true;
+  useRevision.disabled = true;
+  writingStatus.textContent = "Revising with your local Ollama model…";
+  try {
+    const response = await fetch("/api/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: writingInput.value,
+        mode: writingMode.value,
+        target_level: targetLevel.value,
+        task_prompt: taskPrompt.value,
+        english_variety: document.getElementById("writing-variety").value,
+        model: document.getElementById("writing-model").value.trim(),
+        voice_sample: document.getElementById("voice-sample").value,
+      }),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "Revision failed");
+    writingOutput.value = data.revision;
+    renderWritingFeedback(data);
+    downloadRevision.disabled = false;
+    downloadDocx.disabled = false;
+    downloadDraft.disabled = false;
+    useRevision.disabled = false;
+    writingStatus.textContent = "Revision ready. Review it for meaning and factual accuracy before use.";
+  } catch (error) {
+    const message = String(error);
+    writingStatus.textContent = message.includes("could not reach")
+      ? `${message}. Start Ollama and pull the selected model.`
+      : message;
+  } finally {
+    rewriteButton.disabled = false;
+  }
+});
+
+useRevision.addEventListener("click", () => {
+  if (!writingOutput.value) return;
+  writingInput.value = writingOutput.value;
+  updateWordCount();
+  writingStatus.textContent = "Revision moved into the draft. You can edit it, run another pass, or download it.";
+});
+
+downloadDocx.addEventListener("click", async () => {
+  if (!writingOutput.value) return;
+  downloadDocx.disabled = true;
+  writingStatus.textContent = "Preparing Word document…";
+  try {
+    const form = new FormData();
+    form.append("file", writingSourceFile || new Blob([writingInput.value], { type: "text/plain" }), writingSourceFile?.name || "draft.txt");
+    form.append("text", writingInput.value);
+    const response = await fetch("/api/export-document", { method: "POST", body: form });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "Export failed");
+    downloadBase64(data.data_base64, data.filename, data.mime);
+    const sourceName = writingSourceFile?.name.toLowerCase() || "";
+    writingStatus.textContent = sourceName.endsWith(".docx")
+      ? "Word document downloaded with the source package and layout preserved. Review the revised paragraphs."
+      : sourceName.endsWith(".pdf")
+        ? "PDF downloaded with the original pages preserved and revised text appended."
+        : "Word document downloaded with the current draft.";
+  } catch (error) {
+    writingStatus.textContent = String(error);
+  } finally {
+    downloadDocx.disabled = false;
+  }
+});
+
+downloadRevision.addEventListener("click", () => {
+  if (!writingOutput.value) return;
+  const blob = new Blob([writingOutput.value], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "revised-draft.txt";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+});
+
+downloadDraft.addEventListener("click", () => {
+  if (!writingInput.value) return;
+  const blob = new Blob([writingInput.value], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "edited-draft.txt";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+});
+
 // Plain-language noise-level choices, mapped to the underlying
 // strength/fraction knobs so nobody has to understand those directly.
 const NOISE_LEVELS = {
