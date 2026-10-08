@@ -110,7 +110,7 @@ sudo apt install metacleaner</pre>
       <li><b>HTML</b> &mdash; strips identifying <code>&lt;meta&gt;</code> tags (generator, author) and non-conditional comments.</li>
       <li><b>Office documents</b> (DOCX/XLSX/PPTX) &mdash; strips author, company, and tracking properties; document content untouched.</li>
       <li><b>PDF and DOCX writing</b> &mdash; extract text, OCR scanned PDF pages, revise drafts, then export while retaining the source document structure.</li>
-      <li><b>English writing</b> &mdash; General, IELTS, and PTE practice modes with local grammar suggestions and rewrite feedback.</li>
+      <li><b>English writing</b> &mdash; General, IELTS, and PTE practice modes with tone and English variety controls, categorized grammar suggestions, criterion-based feedback, and word/form checks.</li>
     </ul>
   </section>
 
@@ -135,7 +135,7 @@ metaclean serve                          # open the local web app</pre>
     <h2>Optional tools</h2>
     <ul class="features">
       <li><b>Scanned PDF OCR:</b> install Tesseract and Poppler (<code>pdftoppm</code>). On Ubuntu: <code>sudo apt install tesseract-ocr poppler-utils</code>.</li>
-      <li><b>Writing feedback:</b> install <a href="https://ollama.com/download">Ollama</a> and run <code>ollama pull qwen3.5:9b</code>. For grammar checks, install <a href="https://languagetool.org/download/">LanguageTool</a> and Java, then run this in its extracted folder:</li>
+      <li><b>Writing feedback:</b> choose the IELTS/PTE task, English variety, and revision tone in the writing panel. Install <a href="https://ollama.com/download">Ollama</a> and run <code>ollama pull qwen3.5:9b</code> for local revisions. Optional grammar checks use <a href="https://languagetool.org/download/">LanguageTool</a> and Java; run this in its extracted folder:</li>
     </ul>
     <pre>java -cp languagetool-server.jar org.languagetool.server.HTTPServer --port 8081</pre>
   </section>
