@@ -82,17 +82,11 @@
 
   <section id="linux">
     <h2>Install (Debian / Ubuntu)</h2>
-    <pre>sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://siddhantbhattarai.github.io/metacleaner/pubkey.gpg \
-  | sudo tee /etc/apt/keyrings/metacleaner.asc > /dev/null
-
-echo "deb [signed-by=/etc/apt/keyrings/metacleaner.asc] https://siddhantbhattarai.github.io/metacleaner stable main" \
-  | sudo tee /etc/apt/sources.list.d/metacleaner.list
-
-sudo apt update
-sudo apt install metacleaner</pre>
-    <p style="color: var(--muted); font-size: 14px;">This adds a dedicated apt source signed with a repo-specific GPG key (not a global <code>apt-key</code> entry) &mdash; standard practice for third-party apt repositories.</p>
-    <p style="color: var(--muted); font-size: 14px;">To install the newest package directly, <a href="https://github.com/siddhantbhattarai/metacleaner/releases/latest">download the .deb release</a>, then run <code>sudo apt install ./metacleaner_*.deb</code>.</p>
+    <p><a class="btn btn-primary" href="https://github.com/siddhantbhattarai/metacleaner/releases/latest">Download the latest Debian package (.deb)</a></p>
+    <p>Open a terminal in the folder where the package was downloaded and install it with apt:</p>
+    <pre>cd ~/Downloads
+sudo apt install ./metacleaner_*.deb</pre>
+    <p style="color: var(--muted); font-size: 14px;">The release page also provides checksums and the source code.</p>
   </section>
 
   <section id="windows">
