@@ -75,7 +75,7 @@ writing panel. Ollama and its model weights are not bundled into the apt
 package, so the cleaner remains usable without a model.
 
 For rule-based English grammar and spelling checks, the writing panel can
-also connect to a [local LanguageTool server](https://github.com/languagetool-org/languagetool)
+connect to a [local LanguageTool server](https://github.com/languagetool-org/languagetool)
 on `127.0.0.1:8081`. Install Java, download and unpack the
 [LanguageTool standalone package](https://languagetool.org/download/), then
 start its HTTP server from that directory:
@@ -94,7 +94,12 @@ requires an account and usage credits, so it is not an open-source free API.
 For scanned PDF OCR on Debian/Ubuntu, install `tesseract-ocr` with English
 language data and `poppler-utils` (`pdftoppm`). OCR runs locally.
 
-The exam feedback follows the public [IELTS Writing criteria](https://ielts.org/take-a-test/preparation-resources/writing-test-resources)
+Choose a revision tone (preserve your voice, natural and direct, formal
+academic, concise, or confident) and an English variety. IELTS feedback is
+organized by Task Achievement/Response, Coherence and Cohesion, Lexical
+Resource, and Grammatical Range and Accuracy. PTE essay feedback covers
+Content, Development/Structure/Coherence, Form, General Linguistic Range,
+Grammar/Mechanics, Vocabulary Range, and Spelling. The feedback follows the public [IELTS Writing criteria](https://ielts.org/take-a-test/preparation-resources/writing-test-resources)
 and [Pearson PTE Academic task guidance](https://www.pearsonpte.com/pte-academic/test-format/speaking-writing/).
 These modes are study aids, not official IELTS or PTE scoring services.
 

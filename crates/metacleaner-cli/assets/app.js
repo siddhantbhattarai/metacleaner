@@ -174,6 +174,10 @@ function renderWritingFeedback(data) {
       writingFeedback.appendChild(card);
     });
   }
+  if (Array.isArray(data.task_checks) && data.task_checks.length) {
+    addFeedbackText(writingFeedback, "h3", "Task form checks");
+    data.task_checks.forEach((check) => addFeedbackText(writingFeedback, "p", check));
+  }
   writingFeedback.hidden = !writingFeedback.childElementCount;
 }
 
@@ -202,9 +206,9 @@ grammarCheckButton.addEventListener("click", async () => {
     const data = await response.json();
     if (!data.ok) throw new Error(data.error || "Grammar check failed");
     writingFeedback.replaceChildren();
-    addFeedbackText(writingFeedback, "h3", "LanguageTool grammar suggestions");
+    addFeedbackText(writingFeedback, "h3", "Grammar and spelling suggestions");
     if (!data.matches.length) {
-      addFeedbackText(writingFeedback, "p", "No issues found by LanguageTool.");
+      addFeedbackText(writingFeedback, "p", "No issues found by the available grammar checks.");
     }
     data.matches.forEach((match) => {
       const card = document.createElement("article");
@@ -293,6 +297,7 @@ rewriteButton.addEventListener("click", async () => {
         target_level: targetLevel.value,
         task_prompt: taskPrompt.value,
         english_variety: document.getElementById("writing-variety").value,
+        tone: document.getElementById("writing-tone").value,
         model: document.getElementById("writing-model").value.trim(),
         voice_sample: document.getElementById("voice-sample").value,
       }),

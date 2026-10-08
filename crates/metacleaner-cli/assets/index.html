@@ -52,6 +52,15 @@
           <option value="ca">Canadian English</option>
         </select>
       </label>
+      <label>Revision tone
+        <select id="writing-tone">
+          <option value="preserve">Preserve my voice</option>
+          <option value="natural">Natural and direct</option>
+          <option value="formal">Formal academic</option>
+          <option value="concise">Concise</option>
+          <option value="confident">Confident</option>
+        </select>
+      </label>
       <label id="target-level-field" hidden><span id="target-level-label">Practice target</span>
         <select id="target-level"></select>
       </label>
@@ -70,7 +79,7 @@
       <summary>Optional: add a writing sample for voice matching</summary>
       <textarea id="voice-sample" class="writing-textarea" rows="4" maxlength="4000" placeholder="A sample of your own writing. This is sent only to your local Ollama model."></textarea>
     </details>
-    <p id="writing-status" class="option-help" role="status" aria-live="polite">Grammar checking uses an optional local LanguageTool server on port 8081. Draft revisions use local Ollama. Text stays on this device.</p>
+    <p id="writing-status" class="option-help" role="status" aria-live="polite">Grammar checks use an optional local LanguageTool server. Draft revisions use local Ollama. Text stays on this device.</p>
     <label class="writing-label" for="writing-output">Suggested revision</label>
     <textarea id="writing-output" class="writing-textarea" rows="9" placeholder="Your suggested revision will appear here." readonly></textarea>
     <div id="writing-feedback" class="writing-feedback" hidden></div>
