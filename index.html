@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>metacleaner &middot; local metadata cleaner &amp; AI-tag remover</title>
-<meta name="description" content="metacleaner — a local, offline metadata cleaner and AI-tag remover for images, text/Markdown, HTML, and Office documents, written in Rust. Signed apt repository.">
+<meta name="description" content="metacleaner — a local document and metadata cleaner for Linux and Windows, with OCR and English writing tools.">
 <style>
   :root {
     --bg: #f5f6f8; --surface: #ffffff; --surface-2: #fbfbfc;
@@ -69,17 +69,18 @@
         <path d="M12 3l7 3v5c0 4.6-3 8.4-7 9.6-4-1.2-7-5-7-9.6V6l7-3z" fill="currentColor" fill-opacity="0.18" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
         <path d="M9 12.2l2 2 4-4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <span class="badge"><span class="dot"></span> Signed apt repository</span>
+      <span class="badge"><span class="dot"></span> Runs on your computer</span>
     </div>
     <h1>metacleaner</h1>
-    <p class="tagline">A local, offline metadata cleaner and AI-tag remover for images, text/Markdown, HTML, and Office documents &mdash; written in Rust. No network calls, no upload: everything runs on your machine.</p>
+    <p class="tagline">Clean files, read scanned PDFs, and improve English writing on your computer.</p>
     <div class="cta">
-      <a class="btn btn-primary" href="#install">Install via apt</a>
+      <a class="btn btn-primary" href="#linux">Install on Linux</a>
+      <a class="btn btn-ghost" href="https://github.com/siddhantbhattarai/metacleaner/releases/latest/download/metacleaner-windows-x86_64.zip">Download for Windows</a>
       <a class="btn btn-ghost" href="https://github.com/siddhantbhattarai/metacleaner">Source on GitHub</a>
     </div>
   </header>
 
-  <section id="install">
+  <section id="linux">
     <h2>Install (Debian / Ubuntu)</h2>
     <pre>sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://siddhantbhattarai.github.io/metacleaner/pubkey.gpg \
@@ -91,6 +92,14 @@ echo "deb [signed-by=/etc/apt/keyrings/metacleaner.asc] https://siddhantbhattara
 sudo apt update
 sudo apt install metacleaner</pre>
     <p style="color: var(--muted); font-size: 14px;">This adds a dedicated apt source signed with a repo-specific GPG key (not a global <code>apt-key</code> entry) &mdash; standard practice for third-party apt repositories.</p>
+    <p style="color: var(--muted); font-size: 14px;">To install the newest package directly, <a href="https://github.com/siddhantbhattarai/metacleaner/releases/latest">download the .deb release</a>, then run <code>sudo apt install ./metacleaner_*.deb</code>.</p>
+  </section>
+
+  <section id="windows">
+    <h2>Install on Windows</h2>
+    <p>Download and extract the Windows ZIP, then open PowerShell in the extracted folder:</p>
+    <pre>.\metaclean.exe serve</pre>
+    <p style="color: var(--muted); font-size: 14px;"><a href="https://github.com/siddhantbhattarai/metacleaner/releases/latest/download/metaclean.exe">Download the standalone .exe</a> or <a href="https://github.com/siddhantbhattarai/metacleaner/releases/latest/download/metacleaner-windows-x86_64.zip">download the ZIP with instructions and license</a>.</p>
   </section>
 
   <section>
@@ -100,17 +109,35 @@ sudo apt install metacleaner</pre>
       <li><b>Text / Markdown</b> &mdash; strips invisible-Unicode steganography (zero-width chars, bidi overrides, Unicode Tag block smuggling) and AI-identifying frontmatter keys.</li>
       <li><b>HTML</b> &mdash; strips identifying <code>&lt;meta&gt;</code> tags (generator, author) and non-conditional comments.</li>
       <li><b>Office documents</b> (DOCX/XLSX/PPTX) &mdash; strips author, company, and tracking properties; document content untouched.</li>
-      <li><code>metaclean serve</code> runs a local, drag-and-drop web UI at <code>127.0.0.1</code> &mdash; loopback only, no authentication, nothing leaves your machine.</li>
+      <li><b>PDF and DOCX writing</b> &mdash; extract text, OCR scanned PDF pages, revise drafts, then export while retaining the source document structure.</li>
+      <li><b>English writing</b> &mdash; General, IELTS, and PTE practice modes with local grammar suggestions and rewrite feedback.</li>
     </ul>
   </section>
 
-  <section style="border-bottom: none;">
-    <h2>Usage</h2>
+  <section>
+    <h2>Use the app</h2>
+    <p>Start the local web app, then drop in a file or choose it from the page:</p>
+    <pre>metaclean serve</pre>
+    <p>Windows: run <code>.\metaclean.exe serve</code> from PowerShell in the extracted folder.</p>
+    <p style="color: var(--muted); font-size: 14px;">The page opens at <code>http://127.0.0.1:7878</code>. Files stay on your computer.</p>
+  </section>
+
+  <section>
+    <h2>Command line</h2>
     <pre>metaclean inspect photo.jpg              # report what's present, read-only
 metaclean clean photo.jpg                # strip it, writes photo-clean.jpg
 metaclean clean-text notes.md page.html  # invisible chars + frontmatter/meta
 metaclean clean-doc report.docx          # Office document metadata
-metaclean serve                          # local drag-and-drop web UI</pre>
+metaclean serve                          # open the local web app</pre>
+  </section>
+
+  <section style="border-bottom: none;">
+    <h2>Optional tools</h2>
+    <ul class="features">
+      <li><b>Scanned PDF OCR:</b> install Tesseract and Poppler (<code>pdftoppm</code>). On Ubuntu: <code>sudo apt install tesseract-ocr poppler-utils</code>.</li>
+      <li><b>Writing feedback:</b> install <a href="https://ollama.com/download">Ollama</a> and run <code>ollama pull qwen3.5:9b</code>. For grammar checks, install <a href="https://languagetool.org/download/">LanguageTool</a> and Java, then run this in its extracted folder:</li>
+    </ul>
+    <pre>java -cp languagetool-server.jar org.languagetool.server.HTTPServer --port 8081</pre>
   </section>
 
   <footer>
