@@ -1090,7 +1090,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "metacleaner-ai"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "ndarray 0.16.1",
@@ -1100,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "rand 0.8.7",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-docs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "quick-xml",
  "thiserror 1.0.69",
@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-media"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "id3",
  "mp4ameta",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-pdf"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "lopdf",
  "thiserror 1.0.69",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "metacleaner-text"
-version = "0.2.1"
+version = "0.2.2"
 
 [[package]]
 name = "mime"
