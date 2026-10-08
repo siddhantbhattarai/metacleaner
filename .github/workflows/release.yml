@@ -23,9 +23,9 @@ jobs:
 
   build-linux:
     name: Build Debian package
-    # Build on the oldest supported Ubuntu LTS so cargo-deb records
-    # runtime library versions compatible with newer Ubuntu releases.
-    runs-on: ubuntu-22.04
+    # ONNX Runtime's bundled Linux build requires glibc 2.38 and a recent
+    # libstdc++; Ubuntu 24.04 is the oldest supported release runner.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
